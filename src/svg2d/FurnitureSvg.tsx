@@ -553,3 +553,4 @@ export const FurnitureSvg: React.FC<FurnitureSvgProps> = ({
     </g>
   );
 };
+

@@ -106,3 +106,4 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
     </div>
   );
 };
+

@@ -49,6 +49,7 @@ interface Canvas2DProps {
   onAddOpening: (wallId: string, offset: number, type: 'door' | 'window') => void;
   onMoveOpening: (openingId: string, newOffset: number) => void;
   onFlipOpening: (openingId: string, property: 'flipSwing' | 'flipSide') => void;
+  onAddFurniture?: (catalogId: string, worldPos: Point2D) => void;
   onUpdateSettings?: (updater: (prev: ProjectSettings) => ProjectSettings) => void;
   onCursorMove?: (worldPos: Point2D) => void;
 }
@@ -70,6 +71,7 @@ export const Canvas2D: React.FC<Canvas2DProps> = ({
   onAddOpening,
   onMoveOpening,
   onFlipOpening,
+  onAddFurniture,
   onUpdateSettings,
   onCursorMove,
 }) => {
@@ -461,12 +463,31 @@ export const Canvas2D: React.FC<Canvas2DProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onSelect]);
 
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const catalogId = e.dataTransfer.getData('application/forma-catalog-id');
+    if (!catalogId || !onAddFurniture || !containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const screenX = e.clientX - rect.left;
+    const screenY = e.clientY - rect.top;
+    const rawWorld = screenToWorld(screenX, screenY);
+    const { point } = getProcessedCursor(rawWorld);
+    onAddFurniture(catalogId, point);
+  };
+
   const vertexMap = new Map(vertices.map((v) => [v.id, v]));
 
   return (
     <div
       ref={containerRef}
       className="relative w-full h-full overflow-hidden bg-[#0c0e14] select-none"
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
     >
       <svg
         ref={svgRef}
@@ -1053,3 +1074,4 @@ export const Canvas2D: React.FC<Canvas2DProps> = ({
     </div>
   );
 };
+

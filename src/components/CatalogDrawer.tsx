@@ -110,7 +110,11 @@ export const CatalogDrawer: React.FC<CatalogDrawerProps> = ({
         {filteredItems.map((item) => (
           <div
             key={item.id}
-            className="p-3 bg-neutral-950/60 hover:bg-neutral-800/60 border border-neutral-800/80 hover:border-neutral-700 rounded-xl transition flex flex-col justify-between group"
+            draggable={true}
+            onDragStart={(e) => {
+              e.dataTransfer.setData('application/forma-catalog-id', item.id);
+            }}
+            className="p-3 bg-neutral-950/60 hover:bg-neutral-800/60 border border-neutral-800/80 hover:border-neutral-700 rounded-xl transition flex flex-col justify-between group cursor-grab active:cursor-grabbing"
           >
             <div>
               <div className="flex items-start justify-between">
@@ -149,3 +153,4 @@ export const CatalogDrawer: React.FC<CatalogDrawerProps> = ({
     </div>
   );
 };
+

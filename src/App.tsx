@@ -248,6 +248,7 @@ export const App: React.FC = () => {
                 onAddOpening={store.addOpening}
                 onMoveOpening={store.moveOpening}
                 onFlipOpening={store.flipOpening}
+                onAddFurniture={store.addFurnitureFromCatalog}
                 onUpdateSettings={store.updateSettings}
                 onCursorMove={setCursorWorld}
               />
@@ -328,3 +329,4 @@ export const App: React.FC = () => {
     </div>
   );
 };
+

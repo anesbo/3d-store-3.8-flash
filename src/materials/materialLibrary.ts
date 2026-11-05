@@ -225,3 +225,4 @@ export const chromeMaterial = new THREE.MeshStandardMaterial({
 export const warmBulbMaterial = new THREE.MeshBasicMaterial({
   color: new THREE.Color('#fff4db'),
 });
+

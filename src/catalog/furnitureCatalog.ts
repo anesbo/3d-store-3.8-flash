@@ -292,3 +292,4 @@ export const FURNITURE_CATALOG: CatalogItemDef[] = [
     tags: ['lighting', 'track', 'spotlight', 'retail', 'gallery'],
   },
 ];
+

@@ -222,3 +222,4 @@ export class FpsControls {
     this.camera.position.y = this.eyeHeight;
   }
 }
+

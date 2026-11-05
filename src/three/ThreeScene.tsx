@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo, useImperativeHandle, forwardRef } from 'react';
 import * as THREE from 'three';
 import {
   DesignAlternative,
@@ -45,7 +45,15 @@ export const ThreeScene = forwardRef<ThreeSceneHandle, ThreeSceneProps>(function
   const wallsGroupRef = useRef<THREE.Group>(new THREE.Group());
   const roomsGroupRef = useRef<THREE.Group>(new THREE.Group());
   const furnitureGroupRef = useRef<THREE.Group>(new THREE.Group());
+  const lightsGroupRef = useRef<THREE.Group>(new THREE.Group());
   const selectionHighlightRef = useRef<THREE.BoxHelper | null>(null);
+
+  // Walkthrough live player position for mini-map
+  const [playerCoords, setPlayerCoords] = useState<{ x: number; z: number; yaw: number }>({
+    x: 0,
+    z: 0,
+    yaw: 0,
+  });
 
   // Orbit navigation state
   const orbitRef = useRef({
@@ -148,6 +156,7 @@ export const ThreeScene = forwardRef<ThreeSceneHandle, ThreeSceneProps>(function
     scene.add(roomsGroupRef.current);
     scene.add(wallsGroupRef.current);
     scene.add(furnitureGroupRef.current);
+    scene.add(lightsGroupRef.current);
 
     // FPS controls
     const fps = new FpsControls(camera, canvasRef.current);
@@ -166,8 +175,15 @@ export const ThreeScene = forwardRef<ThreeSceneHandle, ThreeSceneProps>(function
       const delta = (now - lastTime) / 1000;
       lastTime = now;
 
-      if (cameraMode === 'walkthrough' && fpsControlsRef.current?.isLocked) {
-        fpsControlsRef.current.update(delta);
+      if (cameraMode === 'walkthrough') {
+        if (fpsControlsRef.current?.isLocked) {
+          fpsControlsRef.current.update(delta);
+        }
+        setPlayerCoords({
+          x: camera.position.x,
+          z: camera.position.z,
+          yaw: (-camera.rotation.y * 180) / Math.PI,
+        });
       } else {
         // Orbit camera update
         const orbit = orbitRef.current;
@@ -253,7 +269,25 @@ export const ThreeScene = forwardRef<ThreeSceneHandle, ThreeSceneProps>(function
       furnitureGroupRef.current.add(itemGroup);
     });
 
-    // 4. Update Selection Bounding Box Highlight
+    // 4. Rebuild Interior Dynamic Lights
+    while (lightsGroupRef.current.children.length > 0) {
+      lightsGroupRef.current.remove(lightsGroupRef.current.children[0]);
+    }
+    alternative.furniture.forEach((item) => {
+      if (item.catalogId === 'light-pendant') {
+        const point = new THREE.PointLight('#ffe4b5', 0.85, 6.5, 1.8);
+        point.position.set(item.x, 2.1, item.y);
+        lightsGroupRef.current.add(point);
+      } else if (item.catalogId === 'light-track') {
+        const p1 = new THREE.PointLight('#fff3db', 0.65, 5.0, 1.8);
+        p1.position.set(item.x - 0.5, 2.5, item.y);
+        const p2 = new THREE.PointLight('#fff3db', 0.65, 5.0, 1.8);
+        p2.position.set(item.x + 0.5, 2.5, item.y);
+        lightsGroupRef.current.add(p1, p2);
+      }
+    });
+
+    // 5. Update Selection Bounding Box Highlight
     if (selectionHighlightRef.current) {
       sceneRef.current.remove(selectionHighlightRef.current);
       selectionHighlightRef.current = null;
@@ -278,6 +312,24 @@ export const ThreeScene = forwardRef<ThreeSceneHandle, ThreeSceneProps>(function
       }
     }
   }, [alternative, settings.showWallTransparency3D, selection]);
+
+  // Memoized bounding box for mini-map radar
+  const miniMapBounds = useMemo(() => {
+    let minX = 0, maxX = 10, minY = 0, maxY = 10;
+    if (alternative.vertices.length > 0) {
+      minX = Math.min(...alternative.vertices.map((v) => v.x)) - 1;
+      maxX = Math.max(...alternative.vertices.map((v) => v.x)) + 1;
+      minY = Math.min(...alternative.vertices.map((v) => v.y)) - 1;
+      maxY = Math.max(...alternative.vertices.map((v) => v.y)) + 1;
+    }
+    const w = Math.max(6, maxX - minX);
+    const h = Math.max(6, maxY - minY);
+    return { minX, minY, w, h };
+  }, [alternative.vertices]);
+
+  const vertexMap = useMemo(() => {
+    return new Map(alternative.vertices.map((v) => [v.id, v]));
+  }, [alternative.vertices]);
 
   // Adjust Sun & Ambient light settings
   useEffect(() => {
@@ -527,6 +579,56 @@ export const ThreeScene = forwardRef<ThreeSceneHandle, ThreeSceneProps>(function
         <span className="text-[11px] font-mono text-neutral-400 w-6 text-right">{sunAngle}°</span>
       </div>
 
+      {/* Walkthrough Mini-Map Radar */}
+      {cameraMode === 'walkthrough' && (
+        <div className="absolute bottom-6 left-6 p-2 bg-neutral-900/90 backdrop-blur-md border border-neutral-800 rounded-xl shadow-2xl z-20 pointer-events-none">
+          <div className="flex items-center justify-between mb-1 px-0.5">
+            <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">Radar Nav</span>
+            <span className="text-[10px] font-mono text-emerald-400">1.60m eye</span>
+          </div>
+          <svg
+            width="130"
+            height="130"
+            viewBox={`${miniMapBounds.minX} ${miniMapBounds.minY} ${miniMapBounds.w} ${miniMapBounds.h}`}
+            className="bg-neutral-950/90 rounded-lg border border-neutral-800"
+          >
+            {/* Rooms fill */}
+            {alternative.rooms.map((r) => (
+              <polygon
+                key={r.id}
+                points={r.polygon.map((p) => `${p.x},${p.y}`).join(' ')}
+                fill="rgba(56, 189, 248, 0.08)"
+              />
+            ))}
+            {/* Walls */}
+            {alternative.walls.map((wall) => {
+              const v1 = vertexMap.get(wall.startVertexId);
+              const v2 = vertexMap.get(wall.endVertexId);
+              if (!v1 || !v2) return null;
+              return (
+                <line
+                  key={wall.id}
+                  x1={v1.x}
+                  y1={v1.y}
+                  x2={v2.x}
+                  y2={v2.y}
+                  stroke="#94a3b8"
+                  strokeWidth="0.4"
+                />
+              );
+            })}
+            {/* Player marker & view cone */}
+            <g transform={`translate(${playerCoords.x}, ${playerCoords.z}) rotate(${playerCoords.yaw})`}>
+              <path d="M 0 0 L -1.2 -2.6 L 1.2 -2.6 Z" fill="rgba(56, 189, 248, 0.35)" />
+              <circle cx="0" cy="0" r="0.45" fill="#38bdf8" stroke="#ffffff" strokeWidth="0.12" />
+            </g>
+          </svg>
+          <div className="text-[9px] font-mono text-neutral-400 text-center mt-1">
+            X: {playerCoords.x.toFixed(1)}m • Z: {playerCoords.z.toFixed(1)}m
+          </div>
+        </div>
+      )}
+
       {/* Walkthrough Mode HUD instructions */}
       {cameraMode === 'walkthrough' && (
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-4 px-4 py-2 bg-neutral-900/90 backdrop-blur-md border border-emerald-500/30 rounded-full shadow-2xl text-xs z-10 animate-fade-in">
@@ -567,3 +669,4 @@ export const ThreeScene = forwardRef<ThreeSceneHandle, ThreeSceneProps>(function
     </div>
   );
 });
+

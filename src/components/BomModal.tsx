@@ -315,3 +315,4 @@ export const BomModal: React.FC<BomModalProps> = ({ isOpen, onClose, alternative
     </div>
   );
 };
+

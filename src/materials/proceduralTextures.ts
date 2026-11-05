@@ -285,3 +285,4 @@ export function getProceduralBrickTexture(): THREE.CanvasTexture {
   textureCache.set(key, texture);
   return texture;
 }
+

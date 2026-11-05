@@ -131,3 +131,4 @@ export const DimensionOverlay: React.FC<DimensionOverlayProps> = ({
     </g>
   );
 };
+

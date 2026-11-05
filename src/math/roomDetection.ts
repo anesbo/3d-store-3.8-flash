@@ -53,7 +53,7 @@ export function detectRooms(
   });
 
   const visitedEdges = new Set<string>();
-  const detectedCycles: { vertexIds: string[]; points: Point2D[]; area: number }[] = [];
+  const rawCycles: { vertexIds: string[]; points: Point2D[]; signedArea: number; area: number }[] = [];
 
   adj.forEach((edges) => {
     for (const startEdge of edges) {
@@ -67,7 +67,6 @@ export function detectRooms(
       while (true) {
         const curKey = `${currentEdge.fromId}->${currentEdge.toId}`;
         if (visitedEdges.has(curKey)) {
-          // If we looped back to the start, mark valid
           if (currentEdge.fromId === startEdge.fromId && currentEdge.toId === startEdge.toId) {
             validCycle = true;
           }
@@ -86,7 +85,6 @@ export function detectRooms(
         const normalizedBackAngle = Math.atan2(Math.sin(backAngle), Math.cos(backAngle));
 
         // Find the edge that is next in counter-clockwise order from backAngle
-        // i.e., sharpest left turn
         let nextEdgeIndex = -1;
         for (let i = 0; i < outgoing.length; i++) {
           if (outgoing[i].angle > normalizedBackAngle) {
@@ -105,7 +103,6 @@ export function detectRooms(
           break;
         }
 
-        // Safety break for overly long loops
         if (cycleVertexIds.length > 50) break;
       }
 
@@ -115,7 +112,6 @@ export function detectRooms(
           .filter((v): v is Vertex => v !== undefined)
           .map((v) => ({ x: v.x, y: v.y }));
 
-        // Compute signed area (using standard SVG coordinate system, check orientation)
         let signedArea = 0;
         const n = points.length;
         for (let i = 0; i < n; i++) {
@@ -124,23 +120,50 @@ export function detectRooms(
         }
         signedArea /= 2;
 
-        // Interior faces in standard CCW traversal have negative signedArea when Y is down,
-        // or positive when Y is up. Let's make sure only bounded interior faces with area > 0.5m² are kept.
-        // We know the unbounded outer face has opposite orientation and typically very large area,
-        // or the sign is opposite to the interior faces.
-        if (signedArea > 0.1 && points.length >= 3) {
-          detectedCycles.push({
+        const area = Math.abs(signedArea);
+        if (area >= 0.5) {
+          rawCycles.push({
             vertexIds: cycleVertexIds,
             points,
-            area: Math.abs(signedArea),
+            signedArea,
+            area,
           });
         }
       }
     }
   });
 
-  // Also check if any cycles were inverted due to winding
-  // If no cycles detected or only 1 with inverted sign, handle fallback
+  // Canonicalize cycle keys so same cycle in different starting positions is deduplicated
+  const uniqueCycles: typeof rawCycles = [];
+  const seenCycleKeys = new Set<string>();
+
+  for (const c of rawCycles) {
+    const sortedIds = [...c.vertexIds].sort().join(',');
+    if (!seenCycleKeys.has(sortedIds)) {
+      seenCycleKeys.add(sortedIds);
+      uniqueCycles.push(c);
+    }
+  }
+
+  // Filter out the outer unbounded boundary face.
+  let validRoomCycles: typeof rawCycles = [];
+  if (uniqueCycles.length <= 1) {
+    validRoomCycles = uniqueCycles;
+  } else {
+    const posCycles = uniqueCycles.filter((c) => c.signedArea > 0);
+    const negCycles = uniqueCycles.filter((c) => c.signedArea < 0);
+
+    if (posCycles.length > 0 && negCycles.length > 0) {
+      if (posCycles.length >= negCycles.length) {
+        validRoomCycles = posCycles;
+      } else {
+        validRoomCycles = negCycles;
+      }
+    } else {
+      validRoomCycles = uniqueCycles;
+    }
+  }
+
   const rooms: Room[] = [];
   const defaultFinishes: FlooringFinish[] = [
     'hardwood_natural',
@@ -148,19 +171,20 @@ export function detectRooms(
     'ceramic_tile',
     'terrazzo_light',
     'hardwood_herringbone',
+    'slate_stone',
   ];
 
-  detectedCycles.forEach((cycle, index) => {
+  validRoomCycles.forEach((cycle, index) => {
     const area = polygonArea(cycle.points);
-    if (area < 0.5) return; // ignore slivers
+    if (area < 0.5) return;
 
     const perimeter = polygonPerimeter(cycle.points);
     const centroid = polygonCentroid(cycle.points);
 
-    // Try to match with existing room close to this centroid
+    // Match with existing room
     const existingMatch = existingRooms.find((r) => {
       const c = polygonCentroid(r.polygon);
-      return distance(c, centroid) < 1.0;
+      return distance(c, centroid) < 1.2;
     });
 
     const roomName = existingMatch?.name ?? (index === 0 ? 'Main Space' : `Room ${index + 1}`);
@@ -168,7 +192,7 @@ export function detectRooms(
     const unitCost = existingMatch?.unitCostPerSqMeter ?? 65;
 
     rooms.push({
-      id: existingMatch?.id ?? `room-${index + 1}-${Math.round(centroid.x * 10)}_${Math.round(centroid.y * 10)}`,
+      id: existingMatch?.id ?? `room_${index + 1}_${Math.round(centroid.x * 10)}_${Math.round(centroid.y * 10)}`,
       name: roomName,
       vertexIds: cycle.vertexIds,
       polygon: cycle.points,
